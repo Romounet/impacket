@@ -351,8 +351,27 @@ class NTLMAuthChallenge(Structure):
         ('TargetInfoFields_offset','<L'),
         ('VersionLen','_-Version','self.checkVersion(self["flags"])'), 
         ('Version',':'),
-        ('domain_name',':'),
+        ('domain_name',':'), #This is a wide char string
         ('TargetInfoFields',':'))
+
+    #Hope nothing will break here
+    """
+    def __init__(self, data = None, domain = '', challenge = None, flags = 3800728117):
+        import random
+        Structure.__init__(self, data)
+        if data is None:
+            self['domain_name'] = domain.encode('utf-16le')
+            self['flags'] = flags
+            self['TargetInfoFields'] = ""
+            if challenge is not None:
+                self['challenge'] = challenge
+            else:
+                self['challenge'] = str(random.getrandbits(64))
+            self['Version']          = b'\xff'*8
+            self['VersionLen']       = 8
+            self['TargetInfoFields_offset'] = 40 + 16 + len(self['domain_name'])
+    """
+        
 
     @staticmethod
     def checkVersion(flags):
@@ -365,6 +384,14 @@ class NTLMAuthChallenge(Structure):
         if self['TargetInfoFields'] is not None and type(self['TargetInfoFields']) is not bytes:
             raw_av_fields = self['TargetInfoFields'].getData()
             self['TargetInfoFields'] = raw_av_fields
+        """
+        if self['domain_name'] is not None:
+            self['domain_len'] = len(self['domain_name'])
+            self['domain_max_len'] = len(self['domain_name'])
+        if self['TargetInfoFields'] is not None:
+            self['TargetInfoFields_len'] = len(self['TargetInfoFields'])
+            self['TargetInfoFields_max_len'] = len(self['TargetInfoFields'])
+        """
         return Structure.getData(self)
 
     def fromString(self,data):
@@ -591,7 +618,6 @@ def getNTLMSSPType1(workstation='', domain='', signingRequired = False, use_ntlm
     return auth
 
 def getNTLMSSPType3(type1, type2, user, password, domain, lmhash = '', nthash = '', use_ntlmv2 = USE_NTLMv2):
-
     # Safety check in case somebody sent password = None.. That's not allowed. Setting it to '' and hope for the best.
     if password is None:
         password = ''
@@ -772,10 +798,10 @@ def get_ntlmv1_response(key, challenge):
 # Crypto Stuff
 
 def MAC(flags, handle, signingKey, seqNum, message):
-   # [MS-NLMP] Section 3.4.4
-   # Returns the right messageSignature depending on the flags
-   messageSignature = NTLMMessageSignature(flags)
-   if flags & NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
+    # [MS-NLMP] Section 3.4.4
+    # Returns the right messageSignature depending on the flags
+    messageSignature = NTLMMessageSignature(flags)
+    if flags & NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
        if flags & NTLMSSP_NEGOTIATE_KEY_EXCH:
            messageSignature['Version'] = 1
            messageSignature['Checksum'] = \
@@ -787,7 +813,7 @@ def MAC(flags, handle, signingKey, seqNum, message):
            messageSignature['Checksum'] = struct.unpack('<q',hmac_md5(signingKey, struct.pack('<i',seqNum)+message)[:8])[0]
            messageSignature['SeqNum'] = seqNum
            seqNum += 1
-   else:
+    else:
        messageSignature['Version'] = 1
        messageSignature['Checksum'] = struct.pack('<I',binascii.crc32(message)& 0xFFFFFFFF)
        messageSignature['RandomPad'] = 0
@@ -796,19 +822,20 @@ def MAC(flags, handle, signingKey, seqNum, message):
        messageSignature['SeqNum'] = handle(b'\x00\x00\x00\x00')
        messageSignature['SeqNum'] = struct.unpack('<I',messageSignature['SeqNum'])[0] ^ seqNum
        messageSignature['RandomPad'] = 0
-       
-   return messageSignature
+
+    print("messageSignature:"+str(messageSignature).encode('hex'))
+    return messageSignature
 
 def SEAL(flags, signingKey, sealingKey, messageToSign, messageToEncrypt, seqNum, handle):
-   sealedMessage = handle(messageToEncrypt)
-   signature = MAC(flags, handle, signingKey, seqNum, messageToSign)
-   return sealedMessage, signature
+    sealedMessage = handle(messageToEncrypt)
+    signature = MAC(flags, handle, signingKey, seqNum, messageToSign)
+    return sealedMessage, signature
 
 def SIGN(flags, signingKey, message, seqNum, handle):
    return MAC(flags, handle, signingKey, seqNum, message)
 
 def SIGNKEY(flags, randomSessionKey, mode = 'Client'):
-   if flags & NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
+    if flags & NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
        if mode == 'Client':
            md5 = hashlib.new('md5')
            md5.update(randomSessionKey + b"session key to client-to-server signing key magic constant\x00")
@@ -817,9 +844,9 @@ def SIGNKEY(flags, randomSessionKey, mode = 'Client'):
            md5 = hashlib.new('md5')
            md5.update(randomSessionKey + b"session key to server-to-client signing key magic constant\x00")
            signKey = md5.digest()
-   else:
+    else:
        signKey = None
-   return signKey
+    return signKey
 
 def SEALKEY(flags, randomSessionKey, mode = 'Client'):
    if flags & NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:

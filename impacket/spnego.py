@@ -4,7 +4,9 @@
 # of the Apache Software License. See the accompanying LICENSE file
 # for more information.
 #
-# Author: Alberto Solino (beto@coresecurity.com)
+# Author: 
+#   Alberto Solino (beto@coresecurity.com)
+#   Romain Carnus   (gosecure)
 #
 # Description:
 #   SPNEGO functions used by SMB, SMB2/3 and DCERPC
@@ -370,3 +372,78 @@ class SPNEGO_NegTokenInit(GSSAPI):
 
         self['Payload'] = ans
         return GSSAPI.getData(self)
+
+
+from Cryptodome.Cipher import ARC4
+from impacket import ntlm
+
+class SPNEGOCipher:
+    def __init__(self, flags, randomSessionKey):
+        self.__flags = flags
+        if self.__flags & ntlm.NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
+            self.__clientSigningKey = ntlm.SIGNKEY(self.__flags, randomSessionKey)
+            self.__serverSigningKey = ntlm.SIGNKEY(self.__flags, randomSessionKey,"Server")
+            self.__clientSealingKey = ntlm.SEALKEY(self.__flags, randomSessionKey)
+            self.__serverSealingKey = ntlm.SEALKEY(self.__flags, randomSessionKey,"Server")
+            # Preparing the keys handle states
+            cipher3 = ARC4.new(self.__clientSealingKey)
+            self.__clientSealingHandle = cipher3.encrypt
+            cipher4 = ARC4.new(self.__serverSealingKey)
+            self.__serverSealingHandle = cipher4.encrypt
+        else:
+            # Same key for everything
+            self.__clientSigningKey = randomSessionKey
+            self.__serverSigningKey = randomSessionKey
+            self.__clientSealingKey = randomSessionKey
+            self.__clientSealingKey = randomSessionKey
+            cipher = ARC4.new(self.__clientSigningKey)
+            self.__clientSealingHandle = cipher.encrypt
+            self.__serverSealingHandle = cipher.encrypt
+        self.__sequence = 0
+
+    def encrypt(self, plain_data):
+        if self.__flags & ntlm.NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
+            # When NTLM2 is on, we sign the whole pdu, but encrypt just
+            # the data, not the dcerpc header. Weird..
+            sealedMessage, signature =  ntlm.SEAL(self.__flags, 
+                   self.__clientSigningKey, 
+                   self.__clientSealingKey,  
+                   plain_data, 
+                   plain_data, 
+                   self.__sequence, 
+                   self.__clientSealingHandle)
+        else:
+            sealedMessage, signature =  ntlm.SEAL(self.__flags, 
+                   self.__clientSigningKey, 
+                   self.__clientSealingKey,  
+                   plain_data, 
+                   plain_data, 
+                   self.__sequence, 
+                   self.__clientSealingHandle)
+
+        self.__sequence += 1
+
+        return signature, sealedMessage
+
+    def decrypt(self, answer):
+        if self.__flags & ntlm.NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
+            # TODO: FIX THIS, it's not calculating the signature well
+            # Since I'm not testing it we don't care... yet
+            answer, signature =  ntlm.SEAL(self.__flags, 
+                    self.__serverSigningKey, 
+                    self.__serverSealingKey,  
+                    answer, 
+                    answer, 
+                    self.__sequence, 
+                    self.__serverSealingHandle)
+        else:
+            answer, signature = ntlm.SEAL(self.__flags, 
+                    self.__serverSigningKey, 
+                    self.__serverSealingKey, 
+                    answer, 
+                    answer, 
+                    self.__sequence, 
+                    self.__serverSealingHandle)
+            self.__sequence += 1
+
+        return signature, answer
