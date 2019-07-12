@@ -299,10 +299,20 @@ class SMBRelayServer(Thread):
                 self.authUser = ('%s/%s' % (authenticateMessage['domain_name'].decode('utf-16le'),
                                             authenticateMessage['user_name'].decode('utf-16le'))).upper()
                 if rawNTLM is True:
+                    LOG.info("RAW NTLM CASE")
                     respToken2 = SPNEGO_NegTokenResp()
                     respToken2['ResponseToken'] = securityBlob
                     securityBlob = respToken2.getData()
+                else:
+                    LOG.info("already SPNEGO case")
+                    respToken2 = SPNEGO_NegTokenResp()
+                    respToken2.fromString(securityBlob)
+                    
 
+                #respToken2.dump()
+                #authenticateMessage.dump()
+                print(securityBlob.encode('hex'))
+                print(connData['CHALLENGE_MESSAGE']['challenge'].encode('hex'))
                 clientResponse, errorCode = self.do_ntlm_auth(client, securityBlob,
                                                               connData['CHALLENGE_MESSAGE']['challenge'])
             else:

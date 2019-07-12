@@ -204,18 +204,20 @@ class HTTPRelayServer(Thread):
             elif messageType == 3:
                 authenticateMessage = ntlm.NTLMAuthChallengeResponse()
                 authenticateMessage.fromString(token)
+                #authenticateMessage.dump()
 
-                if not self.do_ntlm_auth(token,authenticateMessage):
+                errorCode = self.do_ntlm_auth(token,authenticateMessage)
+                if errorCode != STATUS_SUCCESS:
                     if authenticateMessage['flags'] & ntlm.NTLMSSP_NEGOTIATE_UNICODE:
-                        LOG.error("Authenticating against %s://%s as %s\\%s FAILED" % (
+                        LOG.error("Authenticating against %s://%s as %s\\%s FAILED with errorcode %d" % (
                             self.target.scheme, self.target.netloc,
                             authenticateMessage['domain_name'].decode('utf-16le'),
-                            authenticateMessage['user_name'].decode('utf-16le')))
+                            authenticateMessage['user_name'].decode('utf-16le'),errorCode))
                     else:
-                        LOG.error("Authenticating against %s://%s as %s\\%s FAILED" % (
+                        LOG.error("Authenticating against %s://%s as %s\\%s FAILED with errorcode %d" % (
                             self.target.scheme, self.target.netloc,
                             authenticateMessage['domain_name'].decode('ascii'),
-                            authenticateMessage['user_name'].decode('ascii')))
+                            authenticateMessage['user_name'].decode('ascii'),errorCode))
 
                     # Only skip to next if the login actually failed, not if it was just anonymous login or a system account
                     # which we don't want
@@ -293,10 +295,8 @@ class HTTPRelayServer(Thread):
                 # when coming from localhost
                 errorCode = STATUS_ACCESS_DENIED
 
-            if errorCode == STATUS_SUCCESS:
-                return True
-
-            return False
+            print("blah222")
+            return errorCode
 
         def do_attack(self):
             # Check if SOCKS is enabled and if we support the target scheme

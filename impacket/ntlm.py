@@ -611,6 +611,11 @@ def getNTLMSSPType1(workstation='', domain='', signingRequired = False, use_ntlm
     auth['flags'] |= NTLMSSP_NEGOTIATE_NTLM | NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY | NTLMSSP_NEGOTIATE_UNICODE | \
                      NTLMSSP_REQUEST_TARGET |  NTLMSSP_NEGOTIATE_128 | NTLMSSP_NEGOTIATE_56
 
+    #RDP RELAY TESTING:
+    auth['flags'] |= NTLMSSP_NEGOTIATE_VERSION
+    auth['os_version'] = '\x0a\x00\x63\x45\x00\x00\x00\x0f'
+    auth['flags'] |= NTLM_NEGOTIATE_OEM | NTLMSSP_NEGOTIATE_LM_KEY
+
     # We're not adding workstation / domain fields this time. Normally Windows clients don't add such information but,
     # we will save the workstation name to be used later.
     auth.setWorkstation(workstation)
@@ -677,6 +682,13 @@ def getNTLMSSPType3(type1, type2, user, password, domain, lmhash = '', nthash = 
         # No sign available, taking it out
         responseFlags &= 0xffffffff ^ NTLMSSP_NEGOTIATE_ALWAYS_SIGN
 
+
+    #FOR RDP TESTING _ make type3 look like the mstsc one
+    responseFlags |= NTLMSSP_NEGOTIATE_TARGET_INFO
+    responseFlags &= 0xffffffff ^ NTLM_NEGOTIATE_OEM
+    responseFlags &= 0xffffffff ^ NTLMSSP_NEGOTIATE_LM_KEY
+    lmResponse = ''
+
     keyExchangeKey = KXKEY(ntlmChallenge['flags'], sessionBaseKey, lmResponse, ntlmChallenge['challenge'], password,
                            lmhash, nthash, use_ntlmv2)
 
@@ -718,12 +730,18 @@ def getNTLMSSPType3(type1, type2, user, password, domain, lmhash = '', nthash = 
     ntlmChallengeResponse['domain_name'] = domain.encode('utf-16le')
     ntlmChallengeResponse['host_name'] = type1.getWorkstation().encode('utf-16le')
     if lmResponse == '':
-        ntlmChallengeResponse['lanman'] = b'\x00'
+        ntlmChallengeResponse['lanman'] = b'\x00'*24
     else:
         ntlmChallengeResponse['lanman'] = lmResponse
     ntlmChallengeResponse['ntlm'] = ntResponse
     if encryptedRandomSessionKey is not None: 
         ntlmChallengeResponse['session_key'] = encryptedRandomSessionKey
+    
+    if ntlmChallengeResponse['flags'] & NTLMSSP_NEGOTIATE_VERSION:
+        ntlmChallengeResponse['Version'] = type1['os_version']
+        ntlmChallengeResponse['VersionLen'] = 8
+        ntlmChallengeResponse['MIC'] = '\x1c\x8c\xa2\xb2k%\x19M\x91\xb8/\xc8\xc1\xe9\xbbc'
+        ntlmChallengeResponse['MICLen'] = 16
 
     return ntlmChallengeResponse, exportedSessionKey
 
@@ -933,7 +951,10 @@ def computeResponseNTLMv2(flags, serverChallenge, clientChallenge, serverName, d
     # This is set at Local Security Policy -> Local Policies -> Security Options -> Server SPN target name validation
     # level
     if TEST_CASE is False:
-        av_pairs[NTLMSSP_AV_TARGET_NAME] = 'cifs/'.encode('utf-16le') + av_pairs[NTLMSSP_AV_HOSTNAME][1]
+        av_pairs[NTLMSSP_AV_TARGET_NAME] = 'TERMSRV/192.168.160.177'.encode('utf-16le')
+        av_pairs[NTLMSSP_AV_RESTRICTIONS] = "300000000000000001000000002000008448b55f0a9cd2fd676c0354be2b7998ba88b9e86914c091e638c46f1045d8b3".decode('hex')
+        av_pairs[NTLMSSP_AV_FLAGS] = '02000000'.decode('hex')
+        av_pairs[NTLMSSP_AV_CHANNEL_BINDINGS] = "00000000000000000000000000000000".decode('hex')
         if av_pairs[NTLMSSP_AV_TIME] is not None:
            aTime = av_pairs[NTLMSSP_AV_TIME][1]
         else:
@@ -944,7 +965,7 @@ def computeResponseNTLMv2(flags, serverChallenge, clientChallenge, serverName, d
         aTime = b'\x00'*8
 
     temp = responseServerVersion + hiResponseServerVersion + b'\x00' * 6 + aTime + clientChallenge + b'\x00' * 4 + \
-           serverName + b'\x00' * 4
+           serverName + b'\x00' * 8
 
     ntProofStr = hmac_md5(responseKeyNT, serverChallenge + temp)
 
